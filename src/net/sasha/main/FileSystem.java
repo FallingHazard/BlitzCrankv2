@@ -1,9 +1,11 @@
 package net.sasha.main;
 
 import java.io.File;
+import java.io.FileNotFoundException;
 import java.io.IOException;
 
 import org.bukkit.Server;
+import org.bukkit.configuration.InvalidConfigurationException;
 import org.bukkit.configuration.file.FileConfiguration;
 import org.bukkit.configuration.file.YamlConfiguration;
 import org.bukkit.plugin.Plugin;
@@ -78,6 +80,18 @@ public class FileSystem {
   /* Allows the game to modify the core config.*/
   public FileConfiguration getConfig() {
     return coreDataConfig;
+  }
+  
+  public void reloadConfig() {
+    try {
+      coreDataConfig.load(coreData);
+    } catch (FileNotFoundException e) {
+      e.printStackTrace();
+    } catch (IOException e) {
+      e.printStackTrace();
+    } catch (InvalidConfigurationException e) {
+      e.printStackTrace();
+    }
   }
   
 }

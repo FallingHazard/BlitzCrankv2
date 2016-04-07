@@ -14,6 +14,7 @@ import org.bukkit.ChatColor;
 import org.bukkit.EntityEffect;
 import org.bukkit.Location;
 import org.bukkit.Material;
+import org.bukkit.Sound;
 import org.bukkit.configuration.file.FileConfiguration;
 import org.bukkit.entity.Player;
 import org.bukkit.entity.Projectile;
@@ -50,7 +51,7 @@ public class Main extends JavaPlugin implements Listener{
   private String standardHookMsg;
   
   private Map<Snowball, Player> shooterProjectileMap;
-  private Set<Player> playersOnCd;
+  private Map<Player, Counter> playersOnCd;
   
   private FileSystem fileSystem;
   
@@ -65,69 +66,33 @@ public class Main extends JavaPlugin implements Listener{
     setupConfigDefaults();
     
     shooterProjectileMap = new HashMap<Snowball, Player>();
-    playersOnCd = new HashSet<Player>();
+    playersOnCd = new HashMap<Player, Counter>();
+  
     
     getServer().getPluginManager().registerEvents(this, this);
+    getCommand("blitzreload").setExecutor(new CommandHandler(this));
     
     wg = getWorldGuard();
     
     runProjectileChecker();
+    
+    runCoolDown();
     super.onEnable();
   }
-
-  private void setupConfigDefaults() {
-    FileConfiguration config = fileSystem.getConfig();
-    
-    blitzItemName = config.getString("blitz.item-name");
-    if(blitzItemName == null) {
-      blitzItemName = "Blitz-Hook";
-      config.set("blitz.item-name", blitzItemName);
-    }
-    blitzItemName = stripColor(color(blitzItemName));
-    
-    primeItemName = config.getString("prime.item-name");
-    if(primeItemName == null) {
-      primeItemName = "Prime-Hook";
-      config.set("prime.item-name", primeItemName);
-    }
-    primeItemName = stripColor(color(primeItemName));
-    
-    cdMessage = config.getString("cooldown-Message");
-    if(cdMessage == null) {
-      cdMessage = "&6&lYou are on cooldown!";
-      config.set("cooldown-Message", cdMessage);
-    }
-    cdMessage = color(cdMessage);
-    
-    primeDmg = config.getInt("prime.damage");
-    if(primeDmg == 0) {
-      config.set("prime.damage", primeDmg);
-    }
-    
-    standardDmg = config.getInt("blitz.damage");
-    if(standardDmg == 0) {
-      config.set("blitz.damage", standardDmg);
-    }
-    
-    primeHookMsg = config.getString("prime.hooked-by-msg");
-    if(primeHookMsg == null) {
-      primeHookMsg = "&6&lYou have been hooked by [shooter]";
-      config.set("prime.hooked-by-msg", primeHookMsg);
-    }
-    primeHookMsg = color(primeHookMsg);
-    
-    standardHookMsg = config.getString("blitz.hooked-by-msg");
-    if(standardHookMsg == null) {
-      standardHookMsg = "&6&lYou have been hooked by [shooter]";
-      config.set("blitz.hooked-by-msg", standardHookMsg);
-    }
-    standardHookMsg = color(standardHookMsg);
-    
-    fileSystem.saveCoreData();
-    
-    
-  }
   
+  
+
+  @Override
+  public void onDisable() {
+    fileSystem.reloadConfig();
+    
+    getServer().getScheduler().cancelTasks(this);
+    
+    super.onDisable();
+  }
+
+
+
   private String color(String toColor) {
     return ChatColor.translateAlternateColorCodes('&', toColor);
   }
@@ -140,7 +105,7 @@ public class Main extends JavaPlugin implements Listener{
   public void onInteract(PlayerInteractEvent event) {
     ItemStack clickedItem = event.getItem();
     
-    if(clickedItem.getType() == Material.SNOW_BALL) {
+    if(clickedItem != null && clickedItem.getType() == Material.SNOW_BALL) {
      Action action = event.getAction();
      
      if(action == Action.RIGHT_CLICK_AIR || action == Action.RIGHT_CLICK_BLOCK) {
@@ -151,8 +116,8 @@ public class Main extends JavaPlugin implements Listener{
          Player launcher = event.getPlayer();
          
          event.setCancelled(true);
-         if(!playersOnCd.contains(launcher)) {
-           playersOnCd.add(launcher);
+         if(!playersOnCd.containsKey(launcher)) {
+           playersOnCd.put(launcher, new Counter(60));
       
            Snowball newBlitzHook = launcher.launchProjectile(Snowball.class);
            
@@ -160,11 +125,11 @@ public class Main extends JavaPlugin implements Listener{
                                     new FixedMetadataValue(this, itemName));
            
            shooterProjectileMap.put(newBlitzHook, launcher);
-           
-           scheduleCoolDown(launcher);
          }
          else
-           launcher.sendMessage(cdMessage);
+           launcher.sendMessage(cdMessage.replace("[cooldown]", 
+                                                  playersOnCd.get(launcher).value() / 20.0
+                                                  + " seconds"));
        }
      }
     }
@@ -181,16 +146,43 @@ public class Main extends JavaPlugin implements Listener{
     return (WorldGuardPlugin) plugin;
   }
   
-  private void scheduleCoolDown(Player launcher) {
-    getServer().getScheduler().runTaskLater(this, new Runnable() {
+ /* private void scheduleCoolDown(Player launcher) {
+    new BukkitRunnable() {
+    int cd = 60;
+    
+      @Override
+      public void run() {
+        if(cd == -1) {
+          playersOnCd.remove(launcher);
+          this.cancel();
+        }
+        else {
+          cd --;
+          playersOnCd.put(launcher, new Integer(cd));
+        }
+ 
+      }
+    }.runTaskTimer(this, 0L, 1L);
+    
+  }*/
+  
+  private void runCoolDown() {
+    new BukkitRunnable() {
       
       @Override
       public void run() {
-        playersOnCd.remove(launcher);
-        
+        for(Iterator<Entry<Player, Counter>> cdIterator = playersOnCd.entrySet().iterator();
+            cdIterator.hasNext();) {
+          Entry<Player, Counter> playerAndCd = cdIterator.next();
+          
+          Counter cooldown = playerAndCd.getValue();
+          cooldown.decrement();
+          
+          if(cooldown.value() == 0)
+            cdIterator.remove();
+        }      
       }
-    }, 60L);
-    
+    }.runTaskTimer(this, 0L, 1L);
   }
 
   public void runProjectileChecker() {
@@ -229,16 +221,16 @@ public class Main extends JavaPlugin implements Listener{
 
   private void onEntityDamageByEntity(EntityDamageByEntityEvent event) {
    if(event.getDamager() instanceof Snowball) {
-     logger.info("here");
      Snowball damager = (Snowball) event.getDamager();
      
-     if(damager.hasMetadata("blitzHookData") 
+     if(damager.hasMetadata("blitzHookData")
          && event.getEntity() instanceof Player) {
        String hookType = damager.getMetadata("blitzHookData").get(0).asString();
-       logger.info(hookType);
+       
+       shooterProjectileMap.remove(damager);
+ 
        Player shooter = (Player) damager.getShooter();
        Location shooterLoc = shooter.getLocation();
-       Vector shooterVec = shooterLoc.toVector();
        
        ApplicableRegionSet set 
         = wg.getRegionManager(shooterLoc.getWorld()).getApplicableRegions(shooterLoc);
@@ -246,11 +238,6 @@ public class Main extends JavaPlugin implements Listener{
        if(set.allows(DefaultFlag.PVP)) {
          Player hookedPlayer = (Player) event.getEntity();
          Location hookedLoc = hookedPlayer.getLocation();
-         Vector hookedVector = hookedLoc.toVector();
-         
-         Vector direction = shooterVec.subtract(hookedVector).normalize();
-         
-         double distance = hookedLoc.distance(shooterLoc);
          
          String hookMessage = hookType.equals(blitzItemName) 
                                ? standardHookMsg : primeHookMsg;
@@ -260,31 +247,92 @@ public class Main extends JavaPlugin implements Listener{
          hookedPlayer.sendMessage(hookMessage.replace("[shooter]", 
                                   shooter.getName()));
          
+         hookedPlayer.playSound(hookedLoc, Sound.ARROW_HIT, 2.0f, 2.0f);
+         
          shooter.sendMessage(ChatColor.RED 
                              + (ChatColor.BOLD + "You have hooked ")
                              + hookedPlayer.getName());
          
          hookedPlayer.damage(dmg, shooter);
          
+         
+         
          new BukkitRunnable() {
-          
-          int taskCounter = 0;
-          
+                    
           @Override
           public void run() {
-           if(taskCounter > distance - 1)
-             this.cancel();
+           Location newHookedLoc = hookedPlayer.getLocation();
+           Location newShooterLoc  = shooter.getLocation();
            
+           double distance = newHookedLoc.distanceSquared(newShooterLoc);
            
-           hookedPlayer.setVelocity(direction);
-           
-           taskCounter ++;
-            
+           if(distance > 1) {
+             Vector newShootVec = newShooterLoc.toVector();
+             Vector newHookedVec = newHookedLoc.toVector();
+             
+             Vector newDirection 
+                     = newShootVec.subtract(newHookedVec).normalize();
+             
+             hookedPlayer.setVelocity(newDirection);
+           }
+           else
+             this.cancel(); 
           }
         }.runTaskTimer(this, 0L, 1L);
        }
      }
    }
+  }
+  
+  private void setupConfigDefaults() {
+    FileConfiguration config = fileSystem.getConfig();
+    
+    blitzItemName = config.getString("blitz.item-name");
+    if(blitzItemName == null) {
+      blitzItemName = "Blitz-Hook";
+      config.set("blitz.item-name", blitzItemName);
+    }
+    blitzItemName = stripColor(color(blitzItemName));
+    
+    primeItemName = config.getString("prime.item-name");
+    if(primeItemName == null) {
+      primeItemName = "Prime-Hook";
+      config.set("prime.item-name", primeItemName);
+    }
+    primeItemName = stripColor(color(primeItemName));
+    
+    cdMessage = config.getString("cooldown-Message");
+    if(cdMessage == null) {
+      cdMessage = "&6&lCooldown: [cooldown] !";
+      config.set("cooldown-Message", cdMessage);
+    }
+    cdMessage = color(cdMessage);
+    
+    primeDmg = config.getInt("prime.damage");
+    if(primeDmg == 0) {
+      config.set("prime.damage", primeDmg);
+    }
+    
+    standardDmg = config.getInt("blitz.damage");
+    if(standardDmg == 0) {
+      config.set("blitz.damage", standardDmg);
+    }
+    
+    primeHookMsg = config.getString("prime.hooked-by-msg");
+    if(primeHookMsg == null) {
+      primeHookMsg = "&6&lYou have been hooked by [shooter]";
+      config.set("prime.hooked-by-msg", primeHookMsg);
+    }
+    primeHookMsg = color(primeHookMsg);
+    
+    standardHookMsg = config.getString("blitz.hooked-by-msg");
+    if(standardHookMsg == null) {
+      standardHookMsg = "&6&lYou have been hooked by [shooter]";
+      config.set("blitz.hooked-by-msg", standardHookMsg);
+    }
+    standardHookMsg = color(standardHookMsg);
+    
+    fileSystem.saveCoreData(); 
   }
 
 }
