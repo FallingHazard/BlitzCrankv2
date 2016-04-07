@@ -2,22 +2,17 @@ package net.sasha.main;
 
 
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.Iterator;
 import java.util.Map;
 import java.util.Map.Entry;
-import java.util.Set;
 import java.util.logging.Logger;
 
-import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
-import org.bukkit.EntityEffect;
 import org.bukkit.Location;
 import org.bukkit.Material;
 import org.bukkit.Sound;
 import org.bukkit.configuration.file.FileConfiguration;
 import org.bukkit.entity.Player;
-import org.bukkit.entity.Projectile;
 import org.bukkit.entity.Snowball;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
@@ -33,10 +28,12 @@ import org.bukkit.plugin.java.JavaPlugin;
 import org.bukkit.scheduler.BukkitRunnable;
 import org.bukkit.util.Vector;
 
+import com.comphenix.protocol.ProtocolLibrary;
+import com.comphenix.protocol.ProtocolManager;
+import com.comphenix.protocol.wrappers.EnumWrappers.Particle;
 import com.sk89q.worldguard.bukkit.WorldGuardPlugin;
 import com.sk89q.worldguard.protection.ApplicableRegionSet;
 import com.sk89q.worldguard.protection.flags.DefaultFlag;
-import com.sk89q.worldguard.protection.managers.RegionManager;
 
 public class Main extends JavaPlugin implements Listener{
   private String blitzItemName;
@@ -53,6 +50,8 @@ public class Main extends JavaPlugin implements Listener{
   private Map<Snowball, Player> shooterProjectileMap;
   private Map<Player, Counter> playersOnCd;
   
+  private Map<Location, Snowball> tracedLocations;
+  
   private FileSystem fileSystem;
   
   private Logger logger = getServer().getLogger();
@@ -67,8 +66,8 @@ public class Main extends JavaPlugin implements Listener{
     
     shooterProjectileMap = new HashMap<Snowball, Player>();
     playersOnCd = new HashMap<Player, Counter>();
-  
-    
+    tracedLocations = new HashMap<Location, Snowball>();
+   
     getServer().getPluginManager().registerEvents(this, this);
     getCommand("blitzreload").setExecutor(new CommandHandler(this));
     
@@ -89,6 +88,25 @@ public class Main extends JavaPlugin implements Listener{
     getServer().getScheduler().cancelTasks(this);
     
     super.onDisable();
+  }
+  
+  public void drawParticleCirle(Location location) {
+
+    
+  }
+  
+  public WrapperPlayServerWorldParticles particleAt(Location location) {
+    WrapperPlayServerWorldParticles particle 
+                                    = new WrapperPlayServerWorldParticles();
+    
+    particle.setParticleType(Particle.SPELL_WITCH);
+    particle.setNumberOfParticles(20);
+    particle.setX((float) location.getX());
+    particle.setY((float) location.getY());
+    particle.setZ((float) location.getZ());
+    
+    return particle;
+    
   }
 
 
@@ -116,6 +134,7 @@ public class Main extends JavaPlugin implements Listener{
          Player launcher = event.getPlayer();
          
          event.setCancelled(true);
+         
          if(!playersOnCd.containsKey(launcher)) {
            playersOnCd.put(launcher, new Counter(60));
       
@@ -190,6 +209,7 @@ public class Main extends JavaPlugin implements Listener{
       
       @Override
       public void run() {
+        /* Part 1 track the projectiles */
         Iterator<Entry<Snowball, Player>> entryIterator 
                                           = shooterProjectileMap.entrySet().iterator();
         while(entryIterator.hasNext()) {
@@ -197,17 +217,46 @@ public class Main extends JavaPlugin implements Listener{
           
           Player shooter = shooterProjectilePair.getValue();
           Snowball blitzHook = shooterProjectilePair.getKey();
-          
+           
           if(!shooter.isOnline() 
              || shooter.getLocation().distanceSquared(blitzHook.getLocation()) 
                 >= 169) {
             
             blitzHook.remove();
-            entryIterator.remove();
+            // to do remove from tracker.
           }
           
+          if(!blitzHook.isDead())
+            tracedLocations.put(blitzHook.getLocation(), blitzHook);
+          else
+            entryIterator.remove();
         }
-      }
+        
+        /* Part 2 trace the projectile path */
+        Iterator<Entry<Location, Snowball>> traceIterator 
+                                            = tracedLocations.entrySet().iterator();
+
+        while(traceIterator.hasNext()) {
+          Entry<Location, Snowball> tracedEntry = traceIterator.next();
+          
+          Snowball tracedBall = tracedEntry.getValue();
+          
+          if(tracedBall.isDead())
+            traceIterator.remove();
+          else {
+            Location toBeTraced = tracedEntry.getKey();
+            
+            for(Player onlinePlayer : getServer().getOnlinePlayers()) {
+              if(onlinePlayer.getWorld().getUID()
+                  .equals(toBeTraced.getWorld().getUID())) {
+                WrapperPlayServerWorldParticles particle = particleAt(toBeTraced);
+                particle.sendPacket(onlinePlayer);
+              }
+            }
+          }
+
+        }
+      }  
     }, 0L, 1L);
   }
   
@@ -216,7 +265,6 @@ public class Main extends JavaPlugin implements Listener{
     if(!event.isCancelled())
       if(event instanceof EntityDamageByEntityEvent)
        onEntityDamageByEntity((EntityDamageByEntityEvent) event);
-        
   }
 
   private void onEntityDamageByEntity(EntityDamageByEntityEvent event) {
@@ -241,9 +289,7 @@ public class Main extends JavaPlugin implements Listener{
          
          String hookMessage = hookType.equals(blitzItemName) 
                                ? standardHookMsg : primeHookMsg;
-         
-         int dmg = hookType.equalsIgnoreCase(blitzItemName) ? standardDmg : primeDmg;
-         
+          
          hookedPlayer.sendMessage(hookMessage.replace("[shooter]", 
                                   shooter.getName()));
          
@@ -252,10 +298,6 @@ public class Main extends JavaPlugin implements Listener{
          shooter.sendMessage(ChatColor.RED 
                              + (ChatColor.BOLD + "You have hooked ")
                              + hookedPlayer.getName());
-         
-         hookedPlayer.damage(dmg, shooter);
-         
-         
          
          new BukkitRunnable() {
                     
@@ -266,17 +308,25 @@ public class Main extends JavaPlugin implements Listener{
            
            double distance = newHookedLoc.distanceSquared(newShooterLoc);
            
-           if(distance > 1) {
+           if(distance > 4) {
              Vector newShootVec = newShooterLoc.toVector();
              Vector newHookedVec = newHookedLoc.toVector();
              
              Vector newDirection 
                      = newShootVec.subtract(newHookedVec).normalize();
              
-             hookedPlayer.setVelocity(newDirection);
+             hookedPlayer
+              .setVelocity(newDirection.multiply(1)
+                .add(new Vector(0, 0.1, 0)));
            }
-           else
+           else {
+             int dmg = hookType.equalsIgnoreCase(blitzItemName) 
+                       ? standardDmg : primeDmg;
+             
+             hookedPlayer.damage(dmg, shooter);
+             
              this.cancel(); 
+           }
           }
         }.runTaskTimer(this, 0L, 1L);
        }
