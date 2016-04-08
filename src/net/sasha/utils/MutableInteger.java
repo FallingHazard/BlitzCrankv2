@@ -1,18 +1,18 @@
 package net.sasha.utils;
 
-public class Counter {
+public class MutableInteger {
   private int value;
-  
-  public Counter(int newValue) {
+
+  public MutableInteger(int newValue) {
     value = newValue;
   }
-  
+
   public int value() {
     return value;
   }
-  
+
   public void decrement() {
-    value --;
+    value--;
   }
 
 }
