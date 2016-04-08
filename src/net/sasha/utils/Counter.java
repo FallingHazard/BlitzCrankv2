@@ -1,4 +1,4 @@
-package net.sasha.main;
+package net.sasha.utils;
 
 public class Counter {
   private int value;

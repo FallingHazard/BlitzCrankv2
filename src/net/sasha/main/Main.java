@@ -7,6 +7,9 @@ import java.util.Map;
 import java.util.Map.Entry;
 import java.util.logging.Logger;
 
+import net.sasha.utils.Counter;
+import net.sasha.utils.ParticleUtils;
+
 import org.bukkit.ChatColor;
 import org.bukkit.Location;
 import org.bukkit.Material;
@@ -73,14 +76,12 @@ public class Main extends JavaPlugin implements Listener{
     
     wg = getWorldGuard();
     
-    runProjectileChecker();
+    runProjectileUpdater();
     
     runCoolDown();
     super.onEnable();
   }
   
-  
-
   @Override
   public void onDisable() {
     fileSystem.reloadConfig();
@@ -90,27 +91,6 @@ public class Main extends JavaPlugin implements Listener{
     super.onDisable();
   }
   
-  public void drawParticleCirle(Location location) {
-
-    
-  }
-  
-  public WrapperPlayServerWorldParticles particleAt(Location location) {
-    WrapperPlayServerWorldParticles particle 
-                                    = new WrapperPlayServerWorldParticles();
-    
-    particle.setParticleType(Particle.SPELL_WITCH);
-    particle.setNumberOfParticles(20);
-    particle.setX((float) location.getX());
-    particle.setY((float) location.getY());
-    particle.setZ((float) location.getZ());
-    
-    return particle;
-    
-  }
-
-
-
   private String color(String toColor) {
     return ChatColor.translateAlternateColorCodes('&', toColor);
   }
@@ -164,27 +144,7 @@ public class Main extends JavaPlugin implements Listener{
  
     return (WorldGuardPlugin) plugin;
   }
-  
- /* private void scheduleCoolDown(Player launcher) {
-    new BukkitRunnable() {
-    int cd = 60;
     
-      @Override
-      public void run() {
-        if(cd == -1) {
-          playersOnCd.remove(launcher);
-          this.cancel();
-        }
-        else {
-          cd --;
-          playersOnCd.put(launcher, new Integer(cd));
-        }
- 
-      }
-    }.runTaskTimer(this, 0L, 1L);
-    
-  }*/
-  
   private void runCoolDown() {
     new BukkitRunnable() {
       
@@ -204,60 +164,65 @@ public class Main extends JavaPlugin implements Listener{
     }.runTaskTimer(this, 0L, 1L);
   }
 
-  public void runProjectileChecker() {
+  public void runProjectileUpdater() {
     getServer().getScheduler().scheduleSyncRepeatingTask(this, new Runnable() {
       
       @Override
       public void run() {
-        /* Part 1 track the projectiles */
-        Iterator<Entry<Snowball, Player>> entryIterator 
-                                          = shooterProjectileMap.entrySet().iterator();
-        while(entryIterator.hasNext()) {
-          Entry<Snowball, Player> shooterProjectilePair = entryIterator.next();
-          
-          Player shooter = shooterProjectilePair.getValue();
-          Snowball blitzHook = shooterProjectilePair.getKey();
-           
-          if(!shooter.isOnline() 
-             || shooter.getLocation().distanceSquared(blitzHook.getLocation()) 
-                >= 169) {
-            
-            blitzHook.remove();
-            // to do remove from tracker.
-          }
-          
-          if(!blitzHook.isDead())
-            tracedLocations.put(blitzHook.getLocation(), blitzHook);
-          else
-            entryIterator.remove();
-        }
+        trackProjectiles();
         
-        /* Part 2 trace the projectile path */
-        Iterator<Entry<Location, Snowball>> traceIterator 
-                                            = tracedLocations.entrySet().iterator();
-
-        while(traceIterator.hasNext()) {
-          Entry<Location, Snowball> tracedEntry = traceIterator.next();
-          
-          Snowball tracedBall = tracedEntry.getValue();
-          
-          if(tracedBall.isDead())
-            traceIterator.remove();
-          else {
-            Location toBeTraced = tracedEntry.getKey();
-            
-            for(Player onlinePlayer : getServer().getOnlinePlayers()) {
-              if(onlinePlayer.getWorld().getUID()
-                  .equals(toBeTraced.getWorld().getUID())) {
-                WrapperPlayServerWorldParticles particle = particleAt(toBeTraced);
-                particle.sendPacket(onlinePlayer);
-              }
-            }
-          }
-
-        }
+        traceProjectiles();
       }  
     }, 0L, 1L);
+  }
+  
+  private void trackProjectiles() {
+    /* Part 1 track the projectiles */
+    Iterator<Entry<Snowball, Player>> entryIterator 
+                                      = shooterProjectileMap.entrySet().iterator();
+    while(entryIterator.hasNext()) {
+      Entry<Snowball, Player> shooterProjectilePair = entryIterator.next();
+      
+      Player shooter = shooterProjectilePair.getValue();
+      Snowball blitzHook = shooterProjectilePair.getKey();
+       
+      if(!shooter.isOnline() 
+         || shooter.getLocation().distanceSquared(blitzHook.getLocation()) 
+            >= 169) {
+        
+        blitzHook.remove();
+        // to do remove from tracker.
+      }
+      
+      if(!blitzHook.isDead())
+        tracedLocations.put(blitzHook.getLocation(), blitzHook);
+      else
+        entryIterator.remove();
+    }
+  }
+  
+  private void traceProjectiles() {
+    /* Part 2 trace the projectile path */
+    Iterator<Entry<Location, Snowball>> traceIterator 
+                                        = tracedLocations.entrySet().iterator();
+
+    while(traceIterator.hasNext()) {
+      Entry<Location, Snowball> tracedEntry = traceIterator.next();
+      
+      Snowball tracedBall = tracedEntry.getValue();
+      
+      if(tracedBall.isDead())
+        traceIterator.remove();
+      else {
+        Location toBeTraced = tracedEntry.getKey();
+        
+        for(Player onlinePlayer : getServer().getOnlinePlayers())
+          if(onlinePlayer.getWorld().getUID()
+              .equals(toBeTraced.getWorld().getUID())) 
+            ParticleUtils.witchParticleAt(toBeTraced).sendPacket(onlinePlayer); 
+      }
+
+    }
   }
   
   @EventHandler(priority = EventPriority.MONITOR)
