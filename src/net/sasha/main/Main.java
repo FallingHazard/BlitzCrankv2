@@ -4,11 +4,6 @@ import java.util.HashMap;
 import java.util.Iterator;
 import java.util.Map;
 import java.util.Map.Entry;
-import java.util.logging.Logger;
-
-import net.sasha.utils.MutableInteger;
-import net.sasha.utils.ParticleUtils;
-
 import org.bukkit.ChatColor;
 import org.bukkit.Location;
 import org.bukkit.Material;
@@ -30,14 +25,19 @@ import org.bukkit.plugin.java.JavaPlugin;
 import org.bukkit.scheduler.BukkitRunnable;
 import org.bukkit.util.Vector;
 
-import com.comphenix.protocol.ProtocolLibrary;
-import com.comphenix.protocol.ProtocolManager;
-import com.comphenix.protocol.wrappers.EnumWrappers.Particle;
 import com.sk89q.worldguard.bukkit.WorldGuardPlugin;
 import com.sk89q.worldguard.protection.ApplicableRegionSet;
 import com.sk89q.worldguard.protection.flags.DefaultFlag;
 
+import net.sasha.mechanics.CooldownUpdater;
+import net.sasha.mechanics.ProjectileData;
+import net.sasha.mechanics.ProjectileUpdater;
+import net.sasha.utils.MutableInteger;
+import net.sasha.utils.ParticleUtils;
+import net.sasha.utils.TextUtils;
+
 public class Main extends JavaPlugin implements Listener {
+  private TextUtils utils;
   private String blitzItemName;
   private String primeItemName;
 
@@ -49,14 +49,9 @@ public class Main extends JavaPlugin implements Listener {
   private String primeHookMsg;
   private String standardHookMsg;
 
-  private Map<Snowball, Player> shooterProjectileMap;
-  private Map<Player, MutableInteger> playersOnCd;
-
-  private Map<Location, Snowball> tracedLocations;
+  private ProjectileData projData;
 
   private FileSystem fileSystem;
-
-  private Logger logger = getServer().getLogger();
 
   private WorldGuardPlugin wg;
 
@@ -66,18 +61,18 @@ public class Main extends JavaPlugin implements Listener {
 
     setupConfigDefaults();
 
-    shooterProjectileMap = new HashMap<Snowball, Player>();
-    playersOnCd = new HashMap<Player, MutableInteger>();
-    tracedLocations = new HashMap<Location, Snowball>();
-
+    
     getServer().getPluginManager().registerEvents(this, this);
     getCommand("blitzreload").setExecutor(new CommandHandler(this));
 
     wg = getWorldGuard();
-
-    runProjectileUpdater();
-
-    runCoolDown();
+    
+    projData = new ProjectileData();
+    
+    new ProjectileUpdater(projData, this).runTaskTimer(this, 0L, 1L);
+    
+    new CooldownUpdater(projData).runTaskTimer(this, 0L, 1L);
+    
     super.onEnable();
   }
 
@@ -88,14 +83,6 @@ public class Main extends JavaPlugin implements Listener {
     getServer().getScheduler().cancelTasks(this);
 
     super.onDisable();
-  }
-
-  private String color(String toColor) {
-    return ChatColor.translateAlternateColorCodes('&', toColor);
-  }
-
-  private String stripColor(String toStrip) {
-    return ChatColor.stripColor(toStrip);
   }
 
   @EventHandler
@@ -115,18 +102,22 @@ public class Main extends JavaPlugin implements Listener {
 
           event.setCancelled(true);
 
-          if (!playersOnCd.containsKey(launcher)) {
-            playersOnCd.put(launcher, new MutableInteger(60));
+          Map<Player, MutableInteger> playerCdMap = projData.getPlayerCooldownMap();
+          
+          if (!playerCdMap.containsKey(launcher)) {
+            playerCdMap.put(launcher, new MutableInteger(60));
 
             Snowball newBlitzHook = launcher.launchProjectile(Snowball.class);
 
             newBlitzHook.setMetadata("blitzHookData",
                 new FixedMetadataValue(this, itemName));
 
-            shooterProjectileMap.put(newBlitzHook, launcher);
+            projData.getProjectileShooterMap().put(newBlitzHook, launcher);
           } else {
-            launcher.sendMessage(cdMessage.replace("[cooldown]",
-                playersOnCd.get(launcher).value() / 20.0 + " seconds"));
+            launcher.sendMessage(cdMessage
+                                  .replace("[cooldown]",
+                                           playerCdMap.get(launcher).value() / 20.0 
+                                            + " seconds"));
           }
         }
       }
@@ -144,90 +135,6 @@ public class Main extends JavaPlugin implements Listener {
     return (WorldGuardPlugin) plugin;
   }
 
-  private void runCoolDown() {
-    new BukkitRunnable() {
-
-      @Override
-      public void run() {
-        for (Iterator<Entry<Player, MutableInteger>> cdIterator = playersOnCd
-            .entrySet().iterator(); cdIterator.hasNext();) {
-          Entry<Player, MutableInteger> playerAndCd = cdIterator.next();
-
-          MutableInteger cooldown = playerAndCd.getValue();
-          cooldown.decrement();
-
-          if (cooldown.value() == 0)
-            cdIterator.remove();
-        }
-      }
-    }.runTaskTimer(this, 0L, 1L);
-  }
-
-  public void runProjectileUpdater() {
-    getServer().getScheduler().scheduleSyncRepeatingTask(this, new Runnable() {
-
-      @Override
-      public void run() {
-        trackProjectiles();
-
-        traceProjectiles();
-      }
-    }, 0L, 1L);
-  }
-
-  private void trackProjectiles() {
-    /* Part 1 track the projectiles */
-    Iterator<Entry<Snowball, Player>> entryIterator = shooterProjectileMap
-        .entrySet().iterator();
-    while (entryIterator.hasNext()) {
-      Entry<Snowball, Player> shooterProjectilePair = entryIterator.next();
-
-      Player shooter = shooterProjectilePair.getValue();
-      Snowball blitzHook = shooterProjectilePair.getKey();
-
-      if (!shooter.isOnline() || shooter.getLocation()
-          .distanceSquared(blitzHook.getLocation()) >= 169) {
-
-        blitzHook.remove();
-        // to do remove from tracker.
-      }
-
-      if (!blitzHook.isDead())
-        tracedLocations.put(blitzHook.getLocation(), blitzHook);
-      else
-        entryIterator.remove();
-    }
-  }
-
-  private void traceProjectiles() {
-    /* Part 2 trace the projectile path */
-    Iterator<Entry<Location, Snowball>> traceIterator = tracedLocations
-        .entrySet().iterator();
-
-    while (traceIterator.hasNext()) {
-      Entry<Location, Snowball> tracedEntry = traceIterator.next();
-
-      Snowball tracedBall = tracedEntry.getValue();
-
-      if (tracedBall.isDead())
-        traceIterator.remove();
-      else {
-        Location toBeTraced = tracedEntry.getKey();
-
-        for (Player onlinePlayer : getServer().getOnlinePlayers())
-          if (onlinePlayer.getWorld().getUID()
-              .equals(toBeTraced.getWorld().getUID())) {
-            ParticleUtils
-             .witchParticleAt(toBeTraced.add(0, 0.5, 0)).sendPacket(onlinePlayer);
-            
-            ParticleUtils
-            .witchParticleAt(toBeTraced.add(0, -0.5, 0)).sendPacket(onlinePlayer);
-          }
-      }
-
-    }
-  }
-
   @EventHandler(priority = EventPriority.MONITOR)
   public void onHit(EntityDamageEvent event) {
     if (!event.isCancelled())
@@ -241,10 +148,10 @@ public class Main extends JavaPlugin implements Listener {
 
       if (damager.hasMetadata("blitzHookData")
           && event.getEntity() instanceof Player) {
-        String hookType = damager.getMetadata("blitzHookData").get(0)
-            .asString();
+        String hookType 
+               = damager.getMetadata("blitzHookData").get(0).asString();
 
-        shooterProjectileMap.remove(damager);
+        projData.getProjectileShooterMap().remove(damager);
 
         Player shooter = (Player) damager.getShooter();
         Location shooterLoc = shooter.getLocation();
@@ -257,7 +164,7 @@ public class Main extends JavaPlugin implements Listener {
           Location hookedLoc = hookedPlayer.getLocation();
 
           String hookMessage = hookType.equals(blitzItemName) ? standardHookMsg
-              : primeHookMsg;
+                                                                : primeHookMsg;
 
           hookedPlayer
               .sendMessage(hookMessage.replace("[shooter]", shooter.getName()));
@@ -308,21 +215,21 @@ public class Main extends JavaPlugin implements Listener {
       blitzItemName = "Blitz-Hook";
       config.set("blitz.item-name", blitzItemName);
     }
-    blitzItemName = stripColor(color(blitzItemName));
+    blitzItemName = TextUtils.stripColor(TextUtils.color(blitzItemName));
 
     primeItemName = config.getString("prime.item-name");
     if (primeItemName == null) {
       primeItemName = "Prime-Hook";
       config.set("prime.item-name", primeItemName);
     }
-    primeItemName = stripColor(color(primeItemName));
+    primeItemName = TextUtils.stripColor(TextUtils.color(primeItemName));
 
     cdMessage = config.getString("cooldown-Message");
     if (cdMessage == null) {
       cdMessage = "&6&lCooldown: [cooldown] !";
       config.set("cooldown-Message", cdMessage);
     }
-    cdMessage = color(cdMessage);
+    cdMessage = TextUtils.color(cdMessage);
 
     primeDmg = config.getInt("prime.damage");
     if (primeDmg == 0) {
@@ -339,14 +246,14 @@ public class Main extends JavaPlugin implements Listener {
       primeHookMsg = "&6&lYou have been hooked by [shooter]";
       config.set("prime.hooked-by-msg", primeHookMsg);
     }
-    primeHookMsg = color(primeHookMsg);
+    primeHookMsg = TextUtils.color(primeHookMsg);
 
     standardHookMsg = config.getString("blitz.hooked-by-msg");
     if (standardHookMsg == null) {
       standardHookMsg = "&6&lYou have been hooked by [shooter]";
       config.set("blitz.hooked-by-msg", standardHookMsg);
     }
-    standardHookMsg = color(standardHookMsg);
+    standardHookMsg = TextUtils.color(standardHookMsg);
 
     fileSystem.saveCoreData();
   }
