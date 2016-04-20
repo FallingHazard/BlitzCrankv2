@@ -15,7 +15,7 @@ public class CooldownUpdater extends BukkitRunnable{
   public CooldownUpdater(ProjectileData someData) {
     projData = someData;
   }
-
+  
   @Override
   public void run() {
     Map<Player, MutableInteger> playersOnCd = projData.getPlayerCooldownMap();
@@ -31,5 +31,9 @@ public class CooldownUpdater extends BukkitRunnable{
         cdIterator.remove();
     }
   }
+
+  
+  
+  
 
 }

@@ -1,6 +1,7 @@
 main: net.sasha.main.Main
 name: BlitzCrankv2
 version: 0.2
+depend: [WorldGuard, ProtocolLib]
 author: Mike
 commands:
   blitzreload:

@@ -20,7 +20,6 @@ public class ProjectileUpdater extends BukkitRunnable{
     plugin = main;
   }
 
-  @Override
   public void run() {
     trackProjectiles();
     traceProjectiles();

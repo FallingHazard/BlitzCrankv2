@@ -194,7 +194,7 @@ public class Main extends JavaPlugin implements Listener {
                     newDirection.multiply(1).add(new Vector(0, 0.1, 0)));
               } else {
                 int dmg = hookType.equalsIgnoreCase(blitzItemName) ? standardDmg
-                          : primeDmg;
+                                                                     : primeDmg;
 
                 hookedPlayer.damage(dmg, shooter);
 
