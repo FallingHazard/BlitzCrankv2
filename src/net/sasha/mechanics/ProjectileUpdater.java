@@ -3,23 +3,25 @@ package net.sasha.mechanics;
 import java.util.Iterator;
 import java.util.Map.Entry;
 
+import javax.inject.Inject;
+import javax.inject.Singleton;
+
 import org.bukkit.Location;
 import org.bukkit.entity.Player;
 import org.bukkit.entity.Snowball;
 import org.bukkit.scheduler.BukkitRunnable;
 
-import net.sasha.main.Main;
+import dagger.Lazy;
+import lombok.RequiredArgsConstructor;
+import net.sasha.main.BlitzMain;
+import net.sasha.main.BlitzPlugin;
 import net.sasha.utils.ParticleUtils;
 
+@Singleton @RequiredArgsConstructor(onConstructor=@__({@Inject}))
 public class ProjectileUpdater extends BukkitRunnable{
   private final ProjectileData projectileData;
-  private final Main plugin;
+  private final Lazy<BlitzMain> blitzMain;
   
-  public ProjectileUpdater(ProjectileData someData, Main main) {
-    projectileData = someData;
-    plugin = main;
-  }
-
   public void run() {
     trackProjectiles();
     traceProjectiles();
@@ -75,7 +77,7 @@ public class ProjectileUpdater extends BukkitRunnable{
       else {
         Location locationToTrace = tracedEntry.getKey();
 
-        for (Player onlinePlayer : plugin.getServer().getOnlinePlayers())
+        for (Player onlinePlayer : blitzMain.get().getOnlinePlayers())
           if (onlinePlayer
                .getWorld().getUID().equals(locationToTrace.getWorld().getUID())) {
             ParticleUtils

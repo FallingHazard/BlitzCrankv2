@@ -1,8 +1,11 @@
-package net.sasha.main;
+package net.sasha.file;
 
 import java.io.File;
 import java.io.FileNotFoundException;
 import java.io.IOException;
+
+import javax.inject.Inject;
+import javax.inject.Singleton;
 
 import org.bukkit.Server;
 import org.bukkit.configuration.InvalidConfigurationException;
@@ -10,20 +13,25 @@ import org.bukkit.configuration.file.FileConfiguration;
 import org.bukkit.configuration.file.YamlConfiguration;
 import org.bukkit.plugin.Plugin;
 
+import net.sasha.main.BlitzPlugin;
+
 /* Represents the file system,
  * has a plugin and server it works on,
  * as well as a core data file 
  * and config for that core Data.
  */
+@Singleton
 public class FileSystem {
   private final Plugin plugin;
+  
   private File coreData;
   private FileConfiguration coreDataConfig;
 
   /*
    * Sets up the plugin and Server references, then initialises.
    */
-  public FileSystem(Plugin plugin) {
+  @Inject
+  public FileSystem(BlitzPlugin plugin) {
     this.plugin = plugin;
     this.init();
   }
@@ -32,7 +40,7 @@ public class FileSystem {
    * Will create a data folder as well as an empty config file if they do not
    * already exist. Will then load the yaml config from the core data file.
    */
-  private void init() {
+  public void init() {
     Server server = plugin.getServer();
     File pluginFolder = plugin.getDataFolder();
 

@@ -1,4 +1,4 @@
-main: net.sasha.main.Main
+main: net.sasha.main.BlitzPlugin
 name: BlitzCrankv2
 version: 0.2
 depend: [WorldGuard, ProtocolLib]

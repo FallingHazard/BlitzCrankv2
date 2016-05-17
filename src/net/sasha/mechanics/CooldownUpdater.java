@@ -4,17 +4,18 @@ import java.util.Iterator;
 import java.util.Map;
 import java.util.Map.Entry;
 
+import javax.inject.Inject;
+import javax.inject.Singleton;
+
 import org.bukkit.entity.Player;
 import org.bukkit.scheduler.BukkitRunnable;
 
+import lombok.RequiredArgsConstructor;
 import net.sasha.utils.MutableInteger;
 
+@Singleton @RequiredArgsConstructor(onConstructor=@__({@Inject}))
 public class CooldownUpdater extends BukkitRunnable{
   private final ProjectileData projData;
-  
-  public CooldownUpdater(ProjectileData someData) {
-    projData = someData;
-  }
   
   @Override
   public void run() {
@@ -31,9 +32,5 @@ public class CooldownUpdater extends BukkitRunnable{
         cdIterator.remove();
     }
   }
-
-  
-  
-  
 
 }

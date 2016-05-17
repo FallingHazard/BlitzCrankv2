@@ -32,7 +32,6 @@ public class ParticleUtils {
     particle.setZ((float) location.getZ());
 
     return particle;
-
   }
 
 }
